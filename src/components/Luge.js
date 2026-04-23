@@ -1,1103 +1,622 @@
 // import React from "react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import * as THREE from "three";
-// ============ siège ============
-export const Luge = () => {
+
+// ======= Shape =======
+class TaperedTubeGeometry extends THREE.BufferGeometry {
+  constructor(curve, tubularSegments, radiusStart, radiusEnd, radialSegments) {
+    super();
+    const frames = curve.computeFrenetFrames(tubularSegments, false);
+    const positions = [];
+    const indices = [];
+
+    for (let i = 0; i <= tubularSegments; i++) {
+      const t = i / tubularSegments;
+      // Rayon qui diminue progressivement vers la pointe
+      const radius = THREE.MathUtils.lerp(radiusStart, radiusEnd, t);
+      const point = curve.getPoint(t);
+      const normal = frames.normals[i];
+      const binormal = frames.binormals[i];
+
+      for (let j = 0; j <= radialSegments; j++) {
+        const angle = (j / radialSegments) * Math.PI * 2;
+        const sin = Math.sin(angle);
+        const cos = Math.cos(angle);
+        positions.push(
+          point.x + radius * (cos * normal.x + sin * binormal.x),
+          point.y + radius * (cos * normal.y + sin * binormal.y),
+          point.z + radius * (cos * normal.z + sin * binormal.z),
+        );
+      }
+    }
+
+    // Indices pour les faces
+    for (let i = 0; i < tubularSegments; i++) {
+      for (let j = 0; j < radialSegments; j++) {
+        const a = i * (radialSegments + 1) + j;
+        const b = (i + 1) * (radialSegments + 1) + j;
+        indices.push(a, b, a + 1);
+        indices.push(b, b + 1, a + 1);
+      }
+    }
+
+    // Génération des UVs
+    const uvs = [];
+    for (let i = 0; i <= tubularSegments; i++) {
+      for (let j = 0; j <= radialSegments; j++) {
+        uvs.push(i / tubularSegments, j / radialSegments);
+      }
+    }
+    this.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+    this.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(positions, 3),
+    );
+    this.setIndex(indices);
+    this.computeVertexNormals();
+  }
+}
+
+// ======= Texture Seat =======
+function loadTex(path, rx = 1, ry = 1.5) {
+  const tex = new THREE.TextureLoader().load(path);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(rx, -ry);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// ======= Texture Chassis and Guide =======
+function loadTexBg(path, rx = 1, ry = 1.5) {
+  const tex = new THREE.TextureLoader().load(path);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(rx, -ry);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// ======= Seat =======
+function createSitV(
+  colorPath,
+  offsetX,
+  offsetY,
+  offsetZ,
+  offRotX,
+  offRoty,
+  offRotZ,
+) {
+  const points = [
+    new THREE.Vector3(0.16, -0.05, 0),
+    new THREE.Vector3(0.27, -0.1, 0),
+    new THREE.Vector3(0.28, -0.05, 0),
+    new THREE.Vector3(-0, -0.04, 0),
+    new THREE.Vector3(-0.28, -0.05, 0),
+    new THREE.Vector3(-0.27, -0.1, 0),
+    new THREE.Vector3(-0.28, -0.1, 0),
+  ];
+  const curve = new THREE.CatmullRomCurve3(points);
+  const mat = new THREE.MeshBasicMaterial({ map: loadTex(colorPath) });
+  const mesh = new THREE.Mesh(
+    new TaperedTubeGeometry(curve, 100, 0.04, 0.02, 2),
+    mat,
+  );
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.rotation.set(offRotX, offRoty, offRotZ);
+  mesh.name = "chassis";
+  return { mesh, mat };
+}
+function createSitH(
+  colorPath,
+  offsetX,
+  offsetY,
+  offsetZ,
+  offRotX,
+  offRoty,
+  offRotZ,
+) {
+  const points = [
+    new THREE.Vector3(0.16, -0.05, 0),
+    new THREE.Vector3(0.27, -0.1, 0),
+    new THREE.Vector3(0.28, -0.05, 0),
+    new THREE.Vector3(-0, -0.04, 0),
+    new THREE.Vector3(-0.4, -0.05, 0),
+    new THREE.Vector3(-0.37, -0.1, 0),
+    new THREE.Vector3(-0.4, -0.1, 0),
+  ];
+  const curve = new THREE.CatmullRomCurve3(points);
+  const mat = new THREE.MeshBasicMaterial({ map: loadTex(colorPath) });
+  const mesh = new THREE.Mesh(
+    new TaperedTubeGeometry(curve, 100, 0.04, 0.02, 2),
+    mat,
+  );
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.rotation.set(offRotX, offRoty, offRotZ);
+  mesh.name = "chassis";
+  return { mesh, mat };
+}
+function createTubeChassisSit(
+  colorPath,
+  offsetX,
+  offsetY,
+  offsetZ,
+  offRotX,
+  offRotY,
+  offRotZ,
+) {
+  const mat = new THREE.MeshBasicMaterial({
+    map: loadTexBg(colorPath),
+  });
+  const mesh = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.03, 0.4, 32, 64),
+    mat,
+  );
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.rotation.set(offRotX, offRotY, offRotZ);
+  mesh.name =
+    offsetX > 0 &&
+    offsetY > 0 &&
+    offsetZ > 0 &&
+    offRotX > 0 &&
+    offRotY > 0 &&
+    offRotZ > 0
+      ? "tube-sit-top"
+      : "tube-sit-bottom";
+
+  return { mesh, mat };
+}
+
+// ======= Chassis =======
+function createTubeChassisLeft(
+  colorPath,
+  offsetX,
+  offsetY,
+  offsetZ,
+  offRotX,
+  offRotY,
+  offRotZ,
+) {
+  const mat = new THREE.MeshBasicMaterial({ map: loadTexBg(colorPath) });
+  const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.028, 0.14, 32), mat);
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.rotation.set(offRotX, offRotY, offRotZ);
+  mesh.name =
+    offsetX > 0 &&
+    offsetY > 0 &&
+    offsetZ > 0 &&
+    offRotX > 0 &&
+    offRotY > 0 &&
+    offRotZ > 0
+      ? "tube-left-top"
+      : "tube-left-bottom";
+
+  return { mesh, mat };
+}
+function createTubeChassisRight(
+  colorPath,
+  offsetX,
+  offsetY,
+  offsetZ,
+  offRotX,
+  offRotY,
+  offRotZ,
+) {
+  const mat = new THREE.MeshBasicMaterial({ map: loadTexBg(colorPath) });
+  const mesh = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.028, 0.14, 32, 64, 64),
+    mat,
+  );
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.rotation.set(offRotX, offRotY, offRotZ);
+  mesh.name =
+    offsetX > 0 &&
+    offsetY > 0 &&
+    offsetZ > 0 &&
+    offRotX > 0 &&
+    offRotY > 0 &&
+    offRotZ > 0
+      ? "tube-right-top"
+      : "tube-right-Bottom";
+
+  return { mesh, mat };
+}
+
+// ======= Hoop =======
+function createTubeHoopRight(
+  colorPath,
+  offsetX,
+  offsetY,
+  offsetZ,
+  offRotX,
+  offRotY,
+  offRotZ,
+) {
+  const points = [
+    new THREE.Vector3(1.05, 0.02, 0.05),
+    new THREE.Vector3(0.75, 0, 0.03),
+    new THREE.Vector3(0.2, 0, 0.01),
+    new THREE.Vector3(0.1, 0, -0.01),
+    new THREE.Vector3(-0.1, 0.05, -0.03),
+    new THREE.Vector3(-0.5, 0.05, -0.05),
+  ];
+
+  const curve = new THREE.CatmullRomCurve3(points);
+  const mat = new THREE.MeshBasicMaterial({
+    map: loadTexBg(colorPath),
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(
+    new TaperedTubeGeometry(curve, 100, 0.04, 0.01, 20),
+    mat,
+  );
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.rotation.set(offRotX, offRotY, offRotZ);
+  mesh.name =
+    offsetX > 0 &&
+    offsetY > 0 &&
+    offsetZ > 0 &&
+    offRotX > 0 &&
+    offRotY > 0 &&
+    offRotZ > 0
+      ? "tube-right-hoop"
+      : "tube-right-hoop";
+
+  return { mesh, mat };
+}
+function createTubeHoopLeft(
+  colorPath,
+  offsetX,
+  offsetY,
+  offsetZ,
+  offRotX,
+  offRotY,
+  offRotZ,
+) {
+  const points = [
+    new THREE.Vector3(1.05, 0.02, -0.05),
+    new THREE.Vector3(0.75, 0, -0.03),
+    new THREE.Vector3(0.2, 0, -0.01),
+    new THREE.Vector3(0.1, 0, 0.01),
+    new THREE.Vector3(-0.1, 0.05, 0.03),
+    new THREE.Vector3(-0.5, 0.05, 0.05),
+  ];
+
+  const curve = new THREE.CatmullRomCurve3(points);
+  const mat = new THREE.MeshBasicMaterial({
+    map: loadTexBg(colorPath),
+    side: THREE.DoubleSide,
+  });
+
+  const mesh = new THREE.Mesh(
+    new TaperedTubeGeometry(curve, 100, 0.04, 0.01, 20),
+    mat,
+  );
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.rotation.set(offRotX, offRotY, offRotZ);
+  mesh.name =
+    offsetX > 0 &&
+    offsetY > 0 &&
+    offsetZ > 0 &&
+    offRotX > 0 &&
+    offRotY > 0 &&
+    offRotZ > 0
+      ? "tube-right-hoop"
+      : "tube-right-hoop";
+
+  return { mesh, mat };
+}
+function createCapBottomHoop(
+  colorPath,
+  offsetX,
+  offsetY,
+  offsetZ,
+  offRotX,
+  offRotY,
+  offRotZ,
+) {
+  const mat = new THREE.MeshBasicMaterial({
+    map: loadTexBg(colorPath),
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.038, 8, 8), mat);
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.rotation.set(offRotX, offRotY, offRotZ);
+  mesh.name = "CapBottomHoop";
+  return { mesh, mat };
+}
+function createCapTopHoop(
+  colorPath,
+  offsetX,
+  offsetY,
+  offsetZ,
+  offRotX,
+  offRotY,
+  offRotZ,
+) {
+  const mat = new THREE.MeshBasicMaterial({
+    map: loadTexBg(colorPath),
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.01, 8, 8), mat);
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.rotation.set(offRotX, offRotY, offRotZ);
+  mesh.name = "CapTopHoop";
+  return { mesh, mat };
+}
+
+// ======= Skating =======
+function createPatinRight(colorPath, offsetX, offsetY, offsetZ) {
+  const points = [
+    new THREE.Vector3(-0.9, -0.12, -0.1), // remontée arrière
+    new THREE.Vector3(0, -0.12, -0.1), // partie basse plate
+    new THREE.Vector3(0.6, -0.12, -0.1),
+    new THREE.Vector3(0.7, 0, -0.12), // retroussé avant
+    new THREE.Vector3(0.63, 0.28, -0.2), // retroussé avant
+  ];
+  const curve = new THREE.CatmullRomCurve3(points);
+  const mat = new THREE.MeshBasicMaterial({
+    map: loadTexBg(colorPath),
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(
+    new TaperedTubeGeometry(curve, 20, 0.045, 0.01, 20),
+    mat,
+  );
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.name = "patinDroit";
+  return { mesh, mat };
+}
+function createPatinLeft(colorPath, offsetX, offsetY, offsetZ) {
+  const points = [
+    new THREE.Vector3(-0.9, -0.12, 0.1), // remontée arrière
+    new THREE.Vector3(0, -0.12, 0.1), // partie basse plate
+    new THREE.Vector3(0.6, -0.12, 0.1),
+    new THREE.Vector3(0.7, 0, 0.12), // retroussé avant
+    new THREE.Vector3(0.63, 0.28, 0.2), // retroussé avant
+  ];
+  const curve = new THREE.CatmullRomCurve3(points);
+  const mat = new THREE.MeshBasicMaterial({
+    map: loadTexBg(colorPath),
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(
+    new TaperedTubeGeometry(curve, 100, 0.045, 0.01, 20),
+    mat,
+  );
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.name = "patinGauche";
+  return { mesh, mat };
+}
+function createCapBottom(
+  colorPath,
+  offsetX,
+  offsetY,
+  offsetZ,
+  offRotX,
+  offRotY,
+  offRotZ,
+) {
+  const mat = new THREE.MeshBasicMaterial({
+    map: loadTex(colorPath),
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), mat);
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.rotation.set(offRotX, offRotY, offRotZ);
+  mesh.name = "CapBottom";
+  return { mesh, mat };
+}
+function createCapTop(
+  colorPath,
+  offsetX,
+  offsetY,
+  offsetZ,
+  offRotX,
+  offRotY,
+  offRotZ,
+) {
+  const mat = new THREE.MeshBasicMaterial({
+    map: loadTex(colorPath),
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.01, 8, 8), mat);
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.rotation.set(offRotX, offRotY, offRotZ);
+  mesh.name = "CapTop";
+  return { mesh, mat };
+}
+
+// ======= Guide =======
+function createGuide(
+  colorPath,
+  offsetX,
+  offsetY,
+  offsetZ,
+  offRotX,
+  offRotY,
+  offRotZ,
+) {
+  const points = [
+    new THREE.Vector3(0.7, 0.4, 0.15),
+    new THREE.Vector3(0.5, 0.4, 0.15),
+    new THREE.Vector3(0.2, 0.4, 0.15),
+    new THREE.Vector3(-0.2, 0.4, 0.15),
+    new THREE.Vector3(-0.4, 0.4, 0.15),
+    new THREE.Vector3(-0.2, 0.3, 0.15),
+    new THREE.Vector3(0.5, 0.4, 0.15),
+    new THREE.Vector3(0.7, 0.4, 0.15),
+  ];
+  const curve = new THREE.CatmullRomCurve3(points);
+  const mat = new THREE.MeshBasicMaterial({
+    map: loadTexBg(colorPath),
+  });
+  const mesh = new THREE.Mesh(
+    new THREE.TubeGeometry(curve, 100, 0.01, 20),
+    mat,
+  );
+  mesh.position.set(offsetX, offsetY, offsetZ);
+  mesh.rotation.set(offRotX, offRotY, offRotZ);
+  mesh.name = "guide";
+  return { mesh, mat };
+}
+
+// ======= Sled =======
+const Luge = ({ scene, selectedColor, backgroundColor, guide }) => {
+  const groupRef = useRef(null);
+  const chassisMatsRef = useRef([]);
+
   useEffect(() => {
-    const createSitV = async (
-      offsetX,
-      offsetY,
-      offsetZ,
-      offRotX,
-      offRoty,
-      offRotZ,
-    ) => {
-      const color1 = await document.getElementById("color-1");
-      const color2 = await document.getElementById("color-2");
-      const color3 = await document.getElementById("color-3");
-      const color4 = await document.getElementById("color-4");
-      const color5 = await document.getElementById("color-5");
-      // console.log(inputs, bois1, bois2);
+    const lugeGroup = new THREE.Group();
+    lugeGroup.name = "luge";
+    chassisMatsRef.current = [];
 
-      const points = await [
-        new THREE.Vector3(0.16, -0.05, 0),
-        new THREE.Vector3(0.27, -0.1, 0),
-        new THREE.Vector3(0.28, -0.05, 0),
-        new THREE.Vector3(-0, -0.04, 0),
-        new THREE.Vector3(-0.28, -0.05, 0),
-        new THREE.Vector3(-0.27, -0.1, 0),
-        new THREE.Vector3(-0.28, -0.1, 0),
-      ];
+    // ======= Seat =======
+    const sitPartsV = [
+      createSitV(selectedColor, -0.7, 0.325, 0, 0, 1.57, 0),
+      createSitV(selectedColor, -0.6, 0.33, 0, 0, 1.57, 0),
+      createSitV(selectedColor, -0.5, 0.335, 0, 0, 1.57, 0),
+      createSitV(selectedColor, -0.4, 0.34, 0, 0, 1.57, 0),
+      createSitV(selectedColor, -0.3, 0.345, 0, 0, 1.57, 0),
+      createSitV(selectedColor, -0.2, 0.35, 0, 0, 1.57, 0),
+    ];
+    sitPartsV.forEach(({ mesh, mat }) => {
+      lugeGroup.add(mesh);
+      chassisMatsRef.current.push(mat);
+    });
 
-      const curve = await new THREE.CatmullRomCurve3(points);
+    const sitPartsH = [
+      createSitH(selectedColor, -0.4, 0.34, 0.2, 0, 0, 0.05),
+      createSitH(selectedColor, -0.4, 0.34, 0.1, 0, 0, 0.05),
+      createSitH(selectedColor, -0.4, 0.34, 0, 0, 0, 0.05),
+      createSitH(selectedColor, -0.4, 0.34, -0.1, 0, 0, 0.05),
+      createSitH(selectedColor, -0.4, 0.34, -0.2, 0, 0, 0.05),
+    ];
+    sitPartsH.forEach(({ mesh, mat }) => {
+      lugeGroup.add(mesh);
+      chassisMatsRef.current.push(mat);
+    });
 
-      class TaperedTubeGeometry extends THREE.BufferGeometry {
-        constructor(
-          curve,
-          tubularSegments,
-          radiusStart,
-          radiusEnd,
-          radialSegments,
-        ) {
-          super();
-          const frames = curve.computeFrenetFrames(tubularSegments, false);
-          const positions = [];
-          const indices = [];
+    const tubeGroupSit = [
+      createTubeChassisSit(backgroundColor, -0.745, 0.25, 0, 1.57, 1.57, 0),
+      createTubeChassisSit(backgroundColor, -0.155, 0.285, 0, 1.57, 1.57, 0),
+    ];
+    tubeGroupSit.forEach(({ mesh, mat }) => {
+      lugeGroup.add(mesh);
+      chassisMatsRef.current.push(mat);
+    });
 
-          for (let i = 0; i <= tubularSegments; i++) {
-            const t = i / tubularSegments;
-            // Rayon qui diminue progressivement vers la pointe
-            const radius = THREE.MathUtils.lerp(radiusStart, radiusEnd, t);
-            const point = curve.getPoint(t);
-            const normal = frames.normals[i];
-            const binormal = frames.binormals[i];
+    // ======= Chassis =======
+    const tubeGroupLeft = [
+      createTubeChassisLeft(backgroundColor, -0.75, 0.15, -0.26, 0, -0.1, -0.4),
+      createTubeChassisLeft(backgroundColor, -0.2, 0.16, -0.26, 0, 0, 0.2),
+    ];
+    tubeGroupLeft.forEach(({ mesh, mat }) => {
+      lugeGroup.add(mesh);
+      chassisMatsRef.current.push(mat);
+    });
 
-            for (let j = 0; j <= radialSegments; j++) {
-              const angle = (j / radialSegments) * Math.PI * 2;
-              const sin = Math.sin(angle);
-              const cos = Math.cos(angle);
-              positions.push(
-                point.x + radius * (cos * normal.x + sin * binormal.x),
-                point.y + radius * (cos * normal.y + sin * binormal.y),
-                point.z + radius * (cos * normal.z + sin * binormal.z),
-              );
-            }
-          }
+    const tubeGroupRight = [
+      createTubeChassisRight(backgroundColor, -0.75, 0.15, 0.26, 0, 0.1, -0.4),
+      createTubeChassisRight(backgroundColor, -0.2, 0.16, 0.26, 0, 0, 0.2),
+    ];
+    tubeGroupRight.forEach(({ mesh, mat }) => {
+      lugeGroup.add(mesh);
+      chassisMatsRef.current.push(mat);
+    });
+    // ======= Hoop =======
+    const hoopRight = createTubeHoopRight(
+      backgroundColor,
+      0.2,
+      0.28,
+      0.24,
+      1.57,
+      0,
+      3.13,
+    );
+    lugeGroup.add(hoopRight.mesh);
+    chassisMatsRef.current.push(hoopRight.mat);
 
-          // Indices pour les faces
-          for (let i = 0; i < tubularSegments; i++) {
-            for (let j = 0; j < radialSegments; j++) {
-              const a = i * (radialSegments + 1) + j;
-              const b = (i + 1) * (radialSegments + 1) + j;
-              indices.push(a, b, a + 1);
-              indices.push(b, b + 1, a + 1);
-            }
-          }
+    const hoopLeft = createTubeHoopLeft(
+      backgroundColor,
+      0.2,
+      0.28,
+      -0.24,
+      -1.57,
+      0,
+      3.13,
+    );
+    lugeGroup.add(hoopLeft.mesh);
+    chassisMatsRef.current.push(hoopLeft.mat);
 
-          // Génération des UVs
-          const uvs = [];
-          for (let i = 0; i <= tubularSegments; i++) {
-            for (let j = 0; j <= radialSegments; j++) {
-              uvs.push(i / tubularSegments, j / radialSegments);
-            }
-          }
-          this.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-          this.setAttribute(
-            "position",
-            new THREE.Float32BufferAttribute(positions, 3),
-          );
-          this.setIndex(indices);
-          this.computeVertexNormals();
+    const capGroupBtmHoop = [
+      createCapBottomHoop(backgroundColor, -0.84, 0.235, 0.23, 0, 0, 0),
+      createCapBottomHoop(backgroundColor, -0.84, 0.235, -0.23, 0, 0, 0),
+    ];
+    capGroupBtmHoop.forEach(({ mesh, mat }) => {
+      lugeGroup.add(mesh);
+      chassisMatsRef.current.push(mat);
+    });
+
+    const capGroupTopHoop = [
+      createCapTopHoop(backgroundColor, 0.7, 0.33, 0.184, 0, 0, 0),
+      createCapTopHoop(backgroundColor, 0.7, 0.33, -0.184, 0, 0, 0),
+    ];
+    capGroupTopHoop.forEach(({ mesh, mat }) => {
+      lugeGroup.add(mesh);
+      chassisMatsRef.current.push(mat);
+    });
+
+    // ======= Skating =======
+    const patinsRight = createPatinRight(backgroundColor, 0, 0.19, 0.37);
+    lugeGroup.add(patinsRight.mesh);
+    chassisMatsRef.current.push(patinsRight.mat);
+
+    const patinsLeft = createPatinLeft(backgroundColor, 0, 0.19, -0.37);
+    lugeGroup.add(patinsLeft.mesh);
+    chassisMatsRef.current.push(patinsLeft.mat);
+
+    const capGroupBtm = [
+      createCapBottom(backgroundColor, -0.88, 0.08, 0.27, 0, 0, 0),
+      createCapBottom(backgroundColor, -0.88, 0.08, -0.27, 0, 0, 0),
+    ];
+    capGroupBtm.forEach(({ mesh, mat }) => {
+      lugeGroup.add(mesh);
+      chassisMatsRef.current.push(mat);
+    });
+
+    const capGroupTop = [
+      createCapTop(backgroundColor, 0.63, 0.465, 0.171, 0, 0, 0),
+      createCapTop(backgroundColor, 0.63, 0.465, -0.171, 0, 0, 0),
+    ];
+    capGroupTop.forEach(({ mesh, mat }) => {
+      lugeGroup.add(mesh);
+      chassisMatsRef.current.push(mat);
+    });
+
+    // ======= Guide =======
+    const guideGroup = [
+      createGuide(guide, -0.03, 0.2, 0.52, -1.57, 0, -0.1),
+      createGuide(guide, -0.03, 0.5, -0.52, 1.57, 0, -0.1),
+    ];
+    guideGroup.forEach(({ mesh, mat }) => {
+      lugeGroup.add(mesh);
+      chassisMatsRef.current.push(mat);
+    });
+    // =====================================================
+    groupRef.current = lugeGroup;
+    scene.add(lugeGroup);
+
+    return () => {
+      scene.remove(lugeGroup);
+      lugeGroup.traverse((obj) => {
+        if (obj.isMesh) {
+          obj.geometry.dispose();
+          obj.material.dispose();
         }
-      }
-
-      const textureLoader = await new THREE.TextureLoader();
-      const weaveTexture = await textureLoader.load(color1.value);
-      weaveTexture.wrapS = await THREE.RepeatWrapping;
-      weaveTexture.wrapT = await THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1.5);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = await true;
-
-      const geo = await new TaperedTubeGeometry(
-        curve,
-        100,
-        0.04,
-        0.02,
-        2,
-        false,
-      );
-      const mat = await new THREE.MeshBasicMaterial({ map: weaveTexture });
-      const mesh = await new THREE.Mesh(geo, mat);
-      mesh.position.x = await offsetX;
-      mesh.position.y = await offsetY;
-      mesh.position.z = await offsetZ;
-      mesh.rotation.x = await offRotX;
-      mesh.rotation.y = await offRoty;
-      mesh.rotation.z = await offRotZ;
-      mesh.name = await "chassis";
-
-      color1.addEventListener("click", (e) => {
-        e.preventDefault();
-        const newTex = textureLoader.load(color1.value);
-        newTex.wrapS = THREE.RepeatWrapping;
-        newTex.wrapT = THREE.RepeatWrapping;
-        newTex.repeat.set(1, 1.5);
-        newTex.repeat.y *= -1;
-        mat.map = newTex;
-        mat.needsUpdate = true;
       });
-
-      color2.addEventListener("click", (e) => {
-        e.preventDefault();
-        const newTex = textureLoader.load(color2.value);
-        newTex.wrapS = THREE.RepeatWrapping;
-        newTex.wrapT = THREE.RepeatWrapping;
-        newTex.repeat.set(1, 1.5);
-        newTex.repeat.y *= -1;
-        mat.map = newTex;
-        mat.needsUpdate = true;
-      });
-
-      color3.addEventListener("click", (e) => {
-        e.preventDefault();
-        const newTex = textureLoader.load(color3.value);
-        newTex.wrapS = THREE.RepeatWrapping;
-        newTex.wrapT = THREE.RepeatWrapping;
-        newTex.repeat.set(1, 1.5);
-        newTex.repeat.y *= -1;
-        mat.map = newTex;
-        mat.needsUpdate = true;
-      });
-
-      color4.addEventListener("click", (e) => {
-        e.preventDefault();
-        const newTex = textureLoader.load(color4.value);
-        newTex.wrapS = THREE.RepeatWrapping;
-        newTex.wrapT = THREE.RepeatWrapping;
-        newTex.repeat.set(1, 1.5);
-        newTex.repeat.y *= -1;
-        mat.map = newTex;
-        mat.needsUpdate = true;
-      });
-
-      color5.addEventListener("click", (e) => {
-        e.preventDefault();
-        const newTex = textureLoader.load(color5.value);
-        newTex.wrapS = THREE.RepeatWrapping;
-        newTex.wrapT = THREE.RepeatWrapping;
-        newTex.repeat.set(1, 1.5);
-        newTex.repeat.y *= -1;
-        mat.map = newTex;
-        mat.needsUpdate = true;
-      });
-
-      return mesh;
     };
-    function createSitH(offsetX, offsetY, offsetZ, offRotX, offRoty, offRotZ) {
-      const color1 = document.getElementById("color-1");
-      const color2 = document.getElementById("color-2");
-      const color3 = document.getElementById("color-3");
-      const color4 = document.getElementById("color-4");
-      const color5 = document.getElementById("color-5");
-      // console.log(inputs, bois1, bois2);
+  }, [scene, selectedColor, backgroundColor, guide]);
 
-      const points = [
-        new THREE.Vector3(0.16, -0.05, 0),
-        new THREE.Vector3(0.27, -0.1, 0),
-        new THREE.Vector3(0.28, -0.05, 0),
-        new THREE.Vector3(-0, -0.04, 0),
-        new THREE.Vector3(-0.4, -0.05, 0),
-        new THREE.Vector3(-0.37, -0.1, 0),
-        new THREE.Vector3(-0.4, -0.1, 0),
-      ];
-
-      const curve = new THREE.CatmullRomCurve3(points);
-
-      class TaperedTubeGeometry extends THREE.BufferGeometry {
-        constructor(
-          curve,
-          tubularSegments,
-          radiusStart,
-          radiusEnd,
-          radialSegments,
-        ) {
-          super();
-          const frames = curve.computeFrenetFrames(tubularSegments, false);
-          const positions = [];
-          const indices = [];
-
-          for (let i = 0; i <= tubularSegments; i++) {
-            const t = i / tubularSegments;
-            // Rayon qui diminue progressivement vers la pointe
-            const radius = THREE.MathUtils.lerp(radiusStart, radiusEnd, t);
-            const point = curve.getPoint(t);
-            const normal = frames.normals[i];
-            const binormal = frames.binormals[i];
-
-            for (let j = 0; j <= radialSegments; j++) {
-              const angle = (j / radialSegments) * Math.PI * 2;
-              const sin = Math.sin(angle);
-              const cos = Math.cos(angle);
-              positions.push(
-                point.x + radius * (cos * normal.x + sin * binormal.x),
-                point.y + radius * (cos * normal.y + sin * binormal.y),
-                point.z + radius * (cos * normal.z + sin * binormal.z),
-              );
-            }
-          }
-
-          // Indices pour les faces
-          for (let i = 0; i < tubularSegments; i++) {
-            for (let j = 0; j < radialSegments; j++) {
-              const a = i * (radialSegments + 1) + j;
-              const b = (i + 1) * (radialSegments + 1) + j;
-              indices.push(a, b, a + 1);
-              indices.push(b, b + 1, a + 1);
-            }
-          }
-
-          // Génération des UVs
-          const uvs = [];
-          for (let i = 0; i <= tubularSegments; i++) {
-            for (let j = 0; j <= radialSegments; j++) {
-              uvs.push(i / tubularSegments, j / radialSegments);
-            }
-          }
-          this.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-          this.setAttribute(
-            "position",
-            new THREE.Float32BufferAttribute(positions, 3),
-          );
-          this.setIndex(indices);
-          this.computeVertexNormals();
-        }
-      }
-
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load(color1.value);
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1.5);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-
-      const geo = new TaperedTubeGeometry(curve, 100, 0.04, 0.02, 2, false);
-      const mat = new THREE.MeshBasicMaterial({ map: weaveTexture });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.x = offsetX;
-      mesh.position.y = offsetY;
-      mesh.position.z = offsetZ;
-      mesh.rotation.x = offRotX;
-      mesh.rotation.y = offRoty;
-      mesh.rotation.z = offRotZ;
-      mesh.name = "chassis";
-
-      color1.addEventListener("click", (e) => {
-        e.preventDefault();
-        const newTex = textureLoader.load(color1.value);
-        newTex.wrapS = THREE.RepeatWrapping;
-        newTex.wrapT = THREE.RepeatWrapping;
-        newTex.repeat.set(1, 1.5);
-        newTex.repeat.y *= -1;
-        mat.map = newTex;
-        mat.needsUpdate = true;
-      });
-
-      color2.addEventListener("click", (e) => {
-        e.preventDefault();
-        const newTex = textureLoader.load(color2.value);
-        newTex.wrapS = THREE.RepeatWrapping;
-        newTex.wrapT = THREE.RepeatWrapping;
-        newTex.repeat.set(1, 1.5);
-        newTex.repeat.y *= -1;
-        mat.map = newTex;
-        mat.needsUpdate = true;
-      });
-
-      color3.addEventListener("click", (e) => {
-        e.preventDefault();
-        const newTex = textureLoader.load(color3.value);
-        newTex.wrapS = THREE.RepeatWrapping;
-        newTex.wrapT = THREE.RepeatWrapping;
-        newTex.repeat.set(1, 1.5);
-        newTex.repeat.y *= -1;
-        mat.map = newTex;
-        mat.needsUpdate = true;
-      });
-
-      color4.addEventListener("click", (e) => {
-        e.preventDefault();
-        const newTex = textureLoader.load(color4.value);
-        newTex.wrapS = THREE.RepeatWrapping;
-        newTex.wrapT = THREE.RepeatWrapping;
-        newTex.repeat.set(1, 1.5);
-        newTex.repeat.y *= -1;
-        mat.map = newTex;
-        mat.needsUpdate = true;
-      });
-
-      color5.addEventListener("click", (e) => {
-        e.preventDefault();
-        const newTex = textureLoader.load(color5.value);
-        newTex.wrapS = THREE.RepeatWrapping;
-        newTex.wrapT = THREE.RepeatWrapping;
-        newTex.repeat.set(1, 1.5);
-        newTex.repeat.y *= -1;
-        mat.map = newTex;
-        mat.needsUpdate = true;
-      });
-
-      return mesh;
-    }
-    function createTubeChassisSit(offsetX, offsetY, offsetZ, offRoty, offRotZ) {
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load("./img/bois-1.jpg");
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1.5);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-
-      const geo = new THREE.CapsuleGeometry(0.03, 0.4, 32, 64, 64, true);
-      const mat = new THREE.MeshBasicMaterial({
-        map: weaveTexture,
-        // roughness: 1,
-      });
-
-      const mesh = new THREE.Mesh(geo, mat);
-
-      mesh.position.x = offsetX;
-      mesh.position.y = offsetY;
-      mesh.position.z = offsetZ;
-      mesh.rotation.y = offRoty;
-      mesh.rotation.z = offRotZ;
-      mesh.name =
-        offsetX > 0 && offsetY > 0 && offsetZ > 0 && offRoty > 0 && offRotZ > 0
-          ? "tube-sit-top"
-          : "tube-sit-bottom";
-
-      return mesh;
-    }
-    // ============ chassis patin============
-    function createTubeChassisLeft(
-      offsetX,
-      offsetY,
-      offsetZ,
-      offRoty,
-      offRotZ,
-    ) {
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load("./img/bois-1.jpg");
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1.5);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-
-      const geo = new THREE.CapsuleGeometry(0.028, 0.14, 32, 64, 64, true);
-      const mat = new THREE.MeshBasicMaterial({
-        map: weaveTexture,
-        // roughness: 1,
-      });
-      // const mat = new THREE.MeshBasicMaterial({
-      //   color: "#78ad77",
-      //   wireframe: true,
-      // });
-
-      const mesh = new THREE.Mesh(geo, mat);
-
-      mesh.position.x = offsetX;
-      mesh.position.y = offsetY;
-      mesh.position.z = offsetZ;
-      mesh.rotation.y = offRoty;
-      mesh.rotation.z = offRotZ;
-      mesh.name =
-        offsetX > 0 && offsetY > 0 && offsetZ > 0 && offRoty > 0 && offRotZ > 0
-          ? "tube-left-top"
-          : "tube-left-bottom";
-
-      return mesh;
-    }
-
-    function createTubeChassisRight(
-      offsetX,
-      offsetY,
-      offsetZ,
-      offRoty,
-      offRotZ,
-    ) {
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load("./img/bois-1.jpg");
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1.5);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-
-      const geo = new THREE.CapsuleGeometry(0.028, 0.14, 32, 64, 64);
-      const mat = new THREE.MeshBasicMaterial({
-        map: weaveTexture,
-        // roughness: 1,
-      });
-      // const mat = new THREE.MeshBasicMaterial({
-      //   color: "#15d9eb",
-      // });
-
-      const mesh = new THREE.Mesh(geo, mat);
-
-      mesh.position.x = offsetX;
-      mesh.position.y = offsetY;
-      mesh.position.z = offsetZ;
-      mesh.rotation.y = offRoty;
-      mesh.rotation.z = offRotZ;
-      mesh.name =
-        offsetX > 0 && offsetY > 0 && offsetZ > 0 && offRoty > 0 && offRotZ > 0
-          ? "tube-right-top"
-          : "tube-right-Bottom";
-
-      return mesh;
-    }
-
-    // ============ chassis renfort ============
-    function createTubeHoopRight(
-      offsetX,
-      offsetY,
-      offsetZ,
-      offRotX,
-      offRoty,
-      offRotZ,
-    ) {
-      const points = [
-        new THREE.Vector3(1.05, 0.02, 0.05),
-        new THREE.Vector3(0.75, 0, 0.03),
-        new THREE.Vector3(0.2, 0, 0.01),
-        new THREE.Vector3(0.1, 0, -0.01),
-        new THREE.Vector3(-0.1, 0.05, -0.03),
-        new THREE.Vector3(-0.5, 0.05, -0.05),
-      ];
-
-      const curve = new THREE.CatmullRomCurve3(points);
-
-      class TaperedTubeGeometry extends THREE.BufferGeometry {
-        constructor(
-          curve,
-          tubularSegments,
-          radiusStart,
-          radiusEnd,
-          radialSegments,
-        ) {
-          super();
-          const frames = curve.computeFrenetFrames(tubularSegments, false);
-          const positions = [];
-          const indices = [];
-
-          for (let i = 0; i <= tubularSegments; i++) {
-            const t = i / tubularSegments;
-            // Rayon qui diminue progressivement vers la pointe
-            const radius = THREE.MathUtils.lerp(radiusStart, radiusEnd, t);
-            const point = curve.getPoint(t);
-            const normal = frames.normals[i];
-            const binormal = frames.binormals[i];
-
-            for (let j = 0; j <= radialSegments; j++) {
-              const angle = (j / radialSegments) * Math.PI * 2;
-              const sin = Math.sin(angle);
-              const cos = Math.cos(angle);
-              positions.push(
-                point.x + radius * (cos * normal.x + sin * binormal.x),
-                point.y + radius * (cos * normal.y + sin * binormal.y),
-                point.z + radius * (cos * normal.z + sin * binormal.z),
-              );
-            }
-          }
-
-          // Indices pour les faces
-          for (let i = 0; i < tubularSegments; i++) {
-            for (let j = 0; j < radialSegments; j++) {
-              const a = i * (radialSegments + 1) + j;
-              const b = (i + 1) * (radialSegments + 1) + j;
-              indices.push(a, b, a + 1);
-              indices.push(b, b + 1, a + 1);
-            }
-          }
-          // Génération des UVs
-          const uvs = [];
-          for (let i = 0; i <= tubularSegments; i++) {
-            for (let j = 0; j <= radialSegments; j++) {
-              uvs.push(i / tubularSegments, j / radialSegments);
-            }
-          }
-          this.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-          this.setAttribute(
-            "position",
-            new THREE.Float32BufferAttribute(positions, 3),
-          );
-          this.setIndex(indices);
-          this.computeVertexNormals();
-        }
-      }
-
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load("./img/bois-1.jpg");
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1.5);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-
-      const geo = new TaperedTubeGeometry(curve, 100, 0.04, 0.01, 20);
-      const mat = new THREE.MeshBasicMaterial({
-        map: weaveTexture,
-        side: THREE.DoubleSide,
-      });
-
-      const mesh = new THREE.Mesh(geo, mat);
-
-      mesh.position.x = offsetX;
-      mesh.position.y = offsetY;
-      mesh.position.z = offsetZ;
-      mesh.rotation.x = offRotX;
-      mesh.rotation.y = offRoty;
-      mesh.rotation.z = offRotZ;
-      mesh.name =
-        offsetX > 0 &&
-        offsetY > 0 &&
-        offRoty > 0 &&
-        offRotX > 0 &&
-        offsetZ > 0 &&
-        offRotZ > 0
-          ? "tube-right-hoop"
-          : "tube-right-hoop";
-
-      return mesh;
-    }
-    function createTubeHoopLeft(
-      offsetX,
-      offsetY,
-      offsetZ,
-      offRotX,
-      offRoty,
-      offRotZ,
-    ) {
-      const points = [
-        new THREE.Vector3(1.05, 0.02, -0.05),
-        new THREE.Vector3(0.75, 0, -0.03),
-        new THREE.Vector3(0.2, 0, -0.01),
-        new THREE.Vector3(0.1, 0, 0.01),
-        new THREE.Vector3(-0.1, 0.05, 0.03),
-        new THREE.Vector3(-0.5, 0.05, 0.05),
-      ];
-
-      const curve = new THREE.CatmullRomCurve3(points);
-      // Classe custom qui fait varier le rayon le long de la courbe
-      class TaperedTubeGeometry extends THREE.BufferGeometry {
-        constructor(
-          curve,
-          tubularSegments,
-          radiusStart,
-          radiusEnd,
-          radialSegments,
-        ) {
-          super();
-          const frames = curve.computeFrenetFrames(tubularSegments, false);
-          const positions = [];
-          const indices = [];
-
-          for (let i = 0; i <= tubularSegments; i++) {
-            const t = i / tubularSegments;
-            // Rayon qui diminue progressivement vers la pointe
-            const radius = THREE.MathUtils.lerp(radiusStart, radiusEnd, t);
-            const point = curve.getPoint(t);
-            const normal = frames.normals[i];
-            const binormal = frames.binormals[i];
-
-            for (let j = 0; j <= radialSegments; j++) {
-              const angle = (j / radialSegments) * Math.PI * 2;
-              const sin = Math.sin(angle);
-              const cos = Math.cos(angle);
-              positions.push(
-                point.x + radius * (cos * normal.x + sin * binormal.x),
-                point.y + radius * (cos * normal.y + sin * binormal.y),
-                point.z + radius * (cos * normal.z + sin * binormal.z),
-              );
-            }
-          }
-
-          // Indices pour les faces
-          for (let i = 0; i < tubularSegments; i++) {
-            for (let j = 0; j < radialSegments; j++) {
-              const a = i * (radialSegments + 1) + j;
-              const b = (i + 1) * (radialSegments + 1) + j;
-              indices.push(a, b, a + 1);
-              indices.push(b, b + 1, a + 1);
-            }
-          }
-          // Génération des UVs
-          const uvs = [];
-          for (let i = 0; i <= tubularSegments; i++) {
-            for (let j = 0; j <= radialSegments; j++) {
-              uvs.push(i / tubularSegments, j / radialSegments);
-            }
-          }
-          this.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-
-          this.setAttribute(
-            "position",
-            new THREE.Float32BufferAttribute(positions, 3),
-          );
-          this.setIndex(indices);
-          this.computeVertexNormals();
-        }
-      }
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load("./img/bois-1.jpg");
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1.5);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-
-      const geo = new TaperedTubeGeometry(curve, 100, 0.04, 0.01, 20);
-      const mat = new THREE.MeshBasicMaterial({
-        map: weaveTexture,
-        side: THREE.DoubleSide,
-      });
-
-      const mesh = new THREE.Mesh(geo, mat);
-
-      mesh.position.x = offsetX;
-      mesh.position.y = offsetY;
-      mesh.position.z = offsetZ;
-      mesh.rotation.x = offRotX;
-      mesh.rotation.y = offRoty;
-      mesh.rotation.z = offRotZ;
-      mesh.name =
-        offsetX > 0 &&
-        offsetY > 0 &&
-        offRoty > 0 &&
-        offRotX > 0 &&
-        offsetZ > 0 &&
-        offRotZ > 0
-          ? "tube-right-hoop"
-          : "tube-right-hoop";
-
-      return mesh;
-    }
-    function createCapBottomHoop(
-      offsetX,
-      offsetY,
-      offsetZ,
-      offRotX,
-      offRoty,
-      offRotZ,
-    ) {
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load("./img/bois-1.jpg");
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-      const geo = new THREE.SphereGeometry(0.035, 8, 8);
-      const mat = new THREE.MeshBasicMaterial({
-        map: weaveTexture,
-        side: THREE.DoubleSide,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.x = offsetX;
-      mesh.position.y = offsetY;
-      mesh.position.z = offsetZ;
-      mesh.rotation.x = offRotX;
-      mesh.rotation.y = offRoty;
-      mesh.rotation.z = offRotZ;
-      mesh.name = "CapBottomHoop";
-      return mesh;
-    }
-    function createCapTopHoop(
-      offsetX,
-      offsetY,
-      offsetZ,
-      offRotX,
-      offRoty,
-      offRotZ,
-    ) {
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load("./img/bois-1.jpg");
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-      const geo = new THREE.SphereGeometry(0.01, 8, 8);
-      const mat = new THREE.MeshBasicMaterial({
-        map: weaveTexture,
-        side: THREE.DoubleSide,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.x = offsetX;
-      mesh.position.y = offsetY;
-      mesh.position.z = offsetZ;
-      mesh.rotation.x = offRotX;
-      mesh.rotation.y = offRoty;
-      mesh.rotation.z = offRotZ;
-      mesh.name = "CapTopHoop";
-      return mesh;
-    }
-    // ============ Patin ============
-
-    function createPatinRight(offsetZ, offsetY) {
-      const points = [
-        new THREE.Vector3(-0.9, -0.12, -0.1), // remontée arrière
-        new THREE.Vector3(0, -0.12, -0.1), // partie basse plate
-        new THREE.Vector3(0.6, -0.12, -0.1),
-        new THREE.Vector3(0.7, 0, -0.12), // retroussé avant
-        new THREE.Vector3(0.63, 0.28, -0.2), // retroussé avant
-      ];
-      const curve = new THREE.CatmullRomCurve3(points);
-      // Classe custom qui fait varier le rayon le long de la courbe
-      class TaperedTubeGeometry extends THREE.BufferGeometry {
-        constructor(
-          curve,
-          tubularSegments,
-          radiusStart,
-          radiusEnd,
-          radialSegments,
-        ) {
-          super();
-          const frames = curve.computeFrenetFrames(tubularSegments, false);
-          const positions = [];
-          const indices = [];
-
-          for (let i = 0; i <= tubularSegments; i++) {
-            const t = i / tubularSegments;
-            // Rayon qui diminue progressivement vers la pointe
-            const radius = THREE.MathUtils.lerp(radiusStart, radiusEnd, t);
-            const point = curve.getPoint(t);
-            const normal = frames.normals[i];
-            const binormal = frames.binormals[i];
-
-            for (let j = 0; j <= radialSegments; j++) {
-              const angle = (j / radialSegments) * Math.PI * 2;
-              const sin = Math.sin(angle);
-              const cos = Math.cos(angle);
-              positions.push(
-                point.x + radius * (cos * normal.x + sin * binormal.x),
-                point.y + radius * (cos * normal.y + sin * binormal.y),
-                point.z + radius * (cos * normal.z + sin * binormal.z),
-              );
-            }
-          }
-
-          // Indices pour les faces
-          for (let i = 0; i < tubularSegments; i++) {
-            for (let j = 0; j < radialSegments; j++) {
-              const a = i * (radialSegments + 1) + j;
-              const b = (i + 1) * (radialSegments + 1) + j;
-              indices.push(a, b, a + 1);
-              indices.push(b, b + 1, a + 1);
-            }
-          }
-
-          // Génération des UVs
-          const uvs = [];
-          for (let i = 0; i <= tubularSegments; i++) {
-            for (let j = 0; j <= radialSegments; j++) {
-              uvs.push(i / tubularSegments, j / radialSegments);
-            }
-          }
-          this.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-          this.setAttribute(
-            "position",
-            new THREE.Float32BufferAttribute(positions, 3),
-          );
-          this.setIndex(indices);
-          this.computeVertexNormals();
-        }
-      }
-
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load("./img/bois-1.jpg");
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1.5);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-
-      const geo = new TaperedTubeGeometry(curve, 20, 0.045, 0.01, 20, false);
-      const mat = new THREE.MeshBasicMaterial({
-        map: weaveTexture,
-        side: THREE.DoubleSide,
-      });
-
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.z = offsetZ;
-      mesh.position.y = offsetY;
-      mesh.name = "patinDroit";
-      return mesh;
-    }
-    function createPatinLeft(offsetZ, offsetY) {
-      const points = [
-        new THREE.Vector3(-0.9, -0.12, 0.1), // remontée arrière
-        new THREE.Vector3(0, -0.12, 0.1), // partie basse plate
-        new THREE.Vector3(0.6, -0.12, 0.1),
-        new THREE.Vector3(0.7, 0, 0.12), // retroussé avant
-        new THREE.Vector3(0.63, 0.28, 0.2), // retroussé avant
-      ];
-      const curve = new THREE.CatmullRomCurve3(points);
-      // Classe custom qui fait varier le rayon le long de la courbe
-      class TaperedTubeGeometry extends THREE.BufferGeometry {
-        constructor(
-          curve,
-          tubularSegments,
-          radiusStart,
-          radiusEnd,
-          radialSegments,
-        ) {
-          super();
-          const frames = curve.computeFrenetFrames(tubularSegments, false);
-          const positions = [];
-          const indices = [];
-
-          for (let i = 0; i <= tubularSegments; i++) {
-            const t = i / tubularSegments;
-            // Rayon qui diminue progressivement vers la pointe
-            const radius = THREE.MathUtils.lerp(radiusStart, radiusEnd, t);
-            const point = curve.getPoint(t);
-            const normal = frames.normals[i];
-            const binormal = frames.binormals[i];
-
-            for (let j = 0; j <= radialSegments; j++) {
-              const angle = (j / radialSegments) * Math.PI * 2;
-              const sin = Math.sin(angle);
-              const cos = Math.cos(angle);
-              positions.push(
-                point.x + radius * (cos * normal.x + sin * binormal.x),
-                point.y + radius * (cos * normal.y + sin * binormal.y),
-                point.z + radius * (cos * normal.z + sin * binormal.z),
-              );
-            }
-          }
-
-          // Indices pour les faces
-          for (let i = 0; i < tubularSegments; i++) {
-            for (let j = 0; j < radialSegments; j++) {
-              const a = i * (radialSegments + 1) + j;
-              const b = (i + 1) * (radialSegments + 1) + j;
-              indices.push(a, b, a + 1);
-              indices.push(b, b + 1, a + 1);
-            }
-          }
-
-          // Génération des UVs
-          const uvs = [];
-          for (let i = 0; i <= tubularSegments; i++) {
-            for (let j = 0; j <= radialSegments; j++) {
-              uvs.push(i / tubularSegments, j / radialSegments);
-            }
-          }
-          this.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-          this.setAttribute(
-            "position",
-            new THREE.Float32BufferAttribute(positions, 3),
-          );
-          this.setIndex(indices);
-          this.computeVertexNormals();
-        }
-      }
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load("./img/bois-1.jpg");
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-
-      const geo = new TaperedTubeGeometry(curve, 100, 0.045, 0.01, 20);
-      const mat = new THREE.MeshBasicMaterial({
-        map: weaveTexture,
-        side: THREE.DoubleSide,
-      });
-
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.z = offsetZ;
-      mesh.position.y = offsetY;
-      mesh.name = "patinGauche";
-      return mesh;
-    }
-    function createCapBottom(
-      offsetX,
-      offsetY,
-      offsetZ,
-      offRotX,
-      offRoty,
-      offRotZ,
-    ) {
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load("./img/bois-1.jpg");
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-      const geo = new THREE.SphereGeometry(0.045, 8, 8);
-      const mat = new THREE.MeshBasicMaterial({
-        map: weaveTexture,
-        side: THREE.DoubleSide,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.x = offsetX;
-      mesh.position.y = offsetY;
-      mesh.position.z = offsetZ;
-      mesh.rotation.x = offRotX;
-      mesh.rotation.y = offRoty;
-      mesh.rotation.z = offRotZ;
-      mesh.name = "CapBottom";
-      return mesh;
-    }
-    function createCapTop(
-      offsetX,
-      offsetY,
-      offsetZ,
-      offRotX,
-      offRoty,
-      offRotZ,
-    ) {
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load("./img/bois-1.jpg");
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-      const geo = new THREE.SphereGeometry(0.01, 8, 8);
-      const mat = new THREE.MeshBasicMaterial({
-        map: weaveTexture,
-        side: THREE.DoubleSide,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.x = offsetX;
-      mesh.position.y = offsetY;
-      mesh.position.z = offsetZ;
-      mesh.rotation.x = offRotX;
-      mesh.rotation.y = offRoty;
-      mesh.rotation.z = offRotZ;
-      mesh.name = "CapTop";
-      return mesh;
-    }
-    // ============ Bride ============
-    function createGuide(offsetX, offsetY, offsetZ, offRotX, offRoty, offRotZ) {
-      const points = [
-        new THREE.Vector3(0.7, 0.4, 0.15),
-        new THREE.Vector3(0.5, 0.4, 0.15),
-        new THREE.Vector3(0.2, 0.4, 0.15),
-        new THREE.Vector3(-0.2, 0.4, 0.15),
-        new THREE.Vector3(-0.4, 0.4, 0.15),
-        new THREE.Vector3(-0.2, 0.3, 0.15),
-        new THREE.Vector3(0.5, 0.4, 0.15),
-        new THREE.Vector3(0.7, 0.4, 0.15),
-      ];
-
-      const curve = new THREE.CatmullRomCurve3(points);
-
-      const textureLoader = new THREE.TextureLoader();
-      const weaveTexture = textureLoader.load("./img/cuir2.jpeg");
-      weaveTexture.wrapS = THREE.RepeatWrapping;
-      weaveTexture.wrapT = THREE.RepeatWrapping;
-      weaveTexture.repeat.set(1, 1.5);
-      weaveTexture.offset.set(0, 0);
-      weaveTexture.repeat.y *= -1;
-      weaveTexture.needsUpdate = true;
-
-      const geo = new THREE.TubeGeometry(curve, 100, 0.01, 20, false);
-      const mat = new THREE.MeshBasicMaterial({
-        map: weaveTexture,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.x = offsetX;
-      mesh.position.y = offsetY;
-      mesh.position.z = offsetZ;
-      mesh.rotation.x = offRotX;
-      mesh.rotation.y = offRoty;
-      mesh.rotation.z = offRotZ;
-      mesh.name = "guide";
-      return mesh;
-    }
-    // ==============================
-    function createLuge() {
-      const lugeGroup = new THREE.Group();
-      lugeGroup.name = "luge";
-
-      const chassisGroup = new THREE.Group();
-      chassisGroup.name = "chassis";
-      //verticale
-      chassisGroup.add(createSitV(-0.7, 0.325, 0, 0, 1.57, 0));
-      chassisGroup.add(createSitV(-0.6, 0.33, 0, 0, 1.57, 0));
-      chassisGroup.add(createSitV(-0.5, 0.335, 0, 0, 1.57, 0));
-      chassisGroup.add(createSitV(-0.4, 0.34, 0, 0, 1.57, 0));
-      chassisGroup.add(createSitV(-0.3, 0.345, 0, 0, 1.57, 0));
-      chassisGroup.add(createSitV(-0.2, 0.35, 0, 0, 1.57, 0));
-
-      //Horizontale
-      chassisGroup.add(createSitH(-0.4, 0.34, 0.2, 0, 0, 0.05));
-      chassisGroup.add(createSitH(-0.4, 0.34, 0.1, 0, 0, 0.05));
-      chassisGroup.add(createSitH(-0.4, 0.34, 0, 0, 0, 0.05));
-      chassisGroup.add(createSitH(-0.4, 0.34, -0.1, 0, 0, 0.05));
-      chassisGroup.add(createSitH(-0.4, 0.34, -0.2, 0, 0, 0.05));
-
-      const tubeGroupSit = new THREE.Group();
-      tubeGroupSit.name = "tubeSit";
-      tubeGroupSit.add(createTubeChassisSit(-0.745, 0.25, 0, 1.57, 1.57));
-      tubeGroupSit.add(createTubeChassisSit(-0.155, 0.285, 0, 1.57, 1.57));
-
-      const tubeGroupLeft = new THREE.Group();
-      tubeGroupLeft.name = "tubeLeft";
-      tubeGroupLeft.add(createTubeChassisLeft(-0.75, 0.15, -0.26, -0.1, -0.4));
-      tubeGroupLeft.add(createTubeChassisLeft(-0.2, 0.16, -0.26, 0, 0.2));
-
-      const tubeGroupRight = new THREE.Group();
-      tubeGroupRight.name = "tubeRight";
-      tubeGroupRight.add(createTubeChassisRight(-0.75, 0.15, 0.26, 0.1, -0.4));
-      tubeGroupRight.add(createTubeChassisRight(-0.2, 0.16, 0.26, 0, 0.2));
-
-      const hoopRight = createTubeHoopRight(0.2, 0.28, 0.24, 1.57, 0, 3.13);
-      const hoopLeft = createTubeHoopLeft(0.2, 0.28, -0.24, -1.57, 0, 3.13);
-
-      const patinsRight = createPatinRight(0.36, 0.2);
-      const patinsLeft = createPatinLeft(-0.36, 0.2);
-
-      const capGroupBtm = new THREE.Group();
-      capGroupBtm.name = "CapBottom";
-      capGroupBtm.add(createCapBottom(-0.88, 0.08, 0.26, 0, 0, 0));
-      capGroupBtm.add(createCapBottom(-0.88, 0.08, -0.26, 0, 0, 0));
-      const capGroupTop = new THREE.Group();
-      capGroupTop.name = "CapTop";
-      capGroupTop.add(createCapTop(0.63, 0.48, 0.16, 0, 0, 0));
-      capGroupTop.add(createCapTop(0.63, 0.48, -0.16, 0, 0, 0));
-
-      const capGroupBtmHoop = new THREE.Group();
-      capGroupBtm.name = "CapBottomHoop";
-      capGroupBtm.add(createCapBottomHoop(-0.84, 0.235, 0.23, 0, 0, 0));
-      capGroupBtm.add(createCapBottomHoop(-0.84, 0.235, -0.23, 0, 0, 0));
-      const capGroupTopHoop = new THREE.Group();
-      capGroupTop.name = "CapTopHoop";
-      capGroupTop.add(createCapTopHoop(0.7, 0.33, 0.184, 0, 0, 0));
-      capGroupTop.add(createCapTopHoop(0.7, 0.33, -0.184, 0, 0, 0));
-
-      const guideGroup = new THREE.Group();
-      guideGroup.name = "guide";
-      guideGroup.add(createGuide(-0.03, 0.2, 0.52, -1.57, 0, -0.1));
-      guideGroup.add(createGuide(-0.03, 0.5, -0.52, 1.57, 0, -0.1));
-
-      lugeGroup.add(chassisGroup);
-      lugeGroup.add(tubeGroupSit);
-      lugeGroup.add(tubeGroupLeft);
-      lugeGroup.add(tubeGroupRight);
-      lugeGroup.add(hoopRight);
-      lugeGroup.add(hoopLeft);
-      lugeGroup.add(patinsRight);
-      lugeGroup.add(patinsLeft);
-      lugeGroup.add(capGroupBtm);
-      lugeGroup.add(capGroupTop);
-      lugeGroup.add(capGroupTopHoop);
-      lugeGroup.add(capGroupBtmHoop);
-      lugeGroup.add(guideGroup);
-      return lugeGroup;
-    }
-  }, []);
+  return null;
 };
 
 export default Luge;
